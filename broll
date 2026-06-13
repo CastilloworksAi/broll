@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# broll — instant terminal B-roll for screen recordings.
+#
+# The "watch me type code" look + ambient effects, with zero editing.
+# This is the b-roll engine behind a lot of faceless tech content.
+#
+#   broll type <file>        realistically "type out" a file, like a human coding
+#   broll type --demo        type a built-in sample (no file needed)
+#   broll banner "SHIP IT"   a big ASCII title card
+#   broll rain               ambient matrix/pipes effect (auto-stops)
+#   broll list               show which effects are available on this machine
+#
+# Handy flags:
+#   --wpm N      typing speed (default 320; higher = faster)
+#   --loop       repeat until you hit Ctrl-C (great for long takes)
+#   --secs N     how long ambient effects run (default 15)
+#   --print      print the text instantly instead of animating (used by tests)
+#
+# Part of: https://github.com/CastilloworksAi/broll   (MIT)
+set -uo pipefail
+
+BROLL_VERSION="1.0.0"
+WPM=320; LOOP=0; SECS=15; PRINT=0
+
+c_reset=$'\033[0m'; c_grn=$'\033[32m'; c_dim=$'\033[2m'; c_red=$'\033[31m'
+ok()  { printf '%s✓%s %s\n' "$c_grn" "$c_reset" "$*"; }
+die() { printf '%s✗%s %s\n' "$c_red" "$c_reset" "$*" >&2; exit 1; }
+have(){ command -v "$1" >/dev/null 2>&1; }
+
+usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
+
+DEMO_TEXT='# build a local AI image studio in one command
+git clone https://github.com/CastilloworksAi/imagine.git
+cd imagine && ./setup.sh
+# ...models downloading...
+./run.sh
+# open http://127.0.0.1:8188  ->  type a prompt  ->  done.'
+
+# type_out TEXT — animate TEXT to the terminal like a person typing.
+# Honors --print (dump instantly) and --wpm (speed).
+type_out() {
+  local text="$1"
+  if [[ $PRINT -eq 1 ]]; then printf '%s\n' "$text"; return 0; fi
+  # seconds per character from words-per-minute (avg 5 chars/word)
+  local spc; spc=$(awk -v w="$WPM" 'BEGIN{printf "%.4f", 60/(w*5)}')
+  local line i ch
+  while IFS= read -r line; do
+    for (( i=0; i<${#line}; i++ )); do
+      ch="${line:i:1}"
+      printf '%s' "$ch"
+      # small random jitter so it doesn't feel robotic
+      sleep "$(awk -v s="$spc" 'BEGIN{srand(); printf "%.4f", s*(0.5+rand())}')"
+    done
+    printf '\n'
+    sleep 0.12
+  done <<< "$text"
+}
+
+cmd_type() {
+  local src="" text=""
+  if [[ "${1:-}" == "--demo" || $# -eq 0 ]]; then text="$DEMO_TEXT"
+  else src="$1"; [[ -f "$src" ]] || die "no such file: $src"; text="$(cat "$src")"; fi
+  if [[ $LOOP -eq 1 && $PRINT -eq 0 ]]; then
+    while :; do type_out "$text"; sleep 0.5; clear 2>/dev/null || true; done
+  else
+    type_out "$text"
+  fi
+}
+
+cmd_banner() {
+  local text="${1:-BUILD STUFF}"
+  if [[ $PRINT -eq 1 ]]; then printf '%s\n' "$text"; return 0; fi
+  if [[ "${BROLL_PLAIN:-0}" != "1" ]] && have toilet;   then toilet -f future -F metal "$text"
+  elif [[ "${BROLL_PLAIN:-0}" != "1" ]] && have figlet; then figlet "$text"
+  else
+    local w=$(( ${#text} + 6 ))
+    printf '+%*s+\n' "$w" '' | tr ' ' '-'
+    printf '|   %s   |\n' "$text"
+    printf '+%*s+\n' "$w" '' | tr ' ' '-'
+  fi
+}
+
+cmd_rain() {
+  if [[ $PRINT -eq 1 ]]; then echo "[rain effect placeholder]"; return 0; fi
+  local bin=""
+  if   have cmatrix; then bin="cmatrix -b"
+  elif have pipes;   then bin="pipes -R"
+  elif [[ -x /usr/games/pipes ]]; then bin="/usr/games/pipes -R"
+  else die "install cmatrix or pipes-sh for the rain effect (see README)"; fi
+  ok "running ${bin%% *} for ${SECS}s — Ctrl-C to stop early"
+  timeout "${SECS}s" $bin || true
+  clear 2>/dev/null || true
+}
+
+cmd_list() {
+  echo "effects:"
+  echo "  type    always available (pure bash)"
+  echo "  banner  always available (uses toilet/figlet if installed, else a box)"
+  printf "  rain    "
+  if have cmatrix || have pipes || [[ -x /usr/games/pipes ]]; then echo "available"; else echo "needs cmatrix or pipes-sh"; fi
+}
+
+main() {
+  [[ $# -eq 0 ]] && { usage; exit 0; }
+  local sub="$1"; shift || true
+  # pull global flags out of the arg list
+  local rest=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --wpm)  WPM="${2:?--wpm needs a number}"; shift 2 ;;
+      --secs) SECS="${2:?--secs needs a number}"; shift 2 ;;
+      --loop) LOOP=1; shift ;;
+      --print) PRINT=1; shift ;;
+      *) rest+=("$1"); shift ;;
+    esac
+  done
+  set -- "${rest[@]+"${rest[@]}"}"
+
+  case "$sub" in
+    type)         cmd_type "$@" ;;
+    banner)       cmd_banner "$@" ;;
+    rain|matrix)  cmd_rain ;;
+    list)         cmd_list ;;
+    -h|--help)    usage ;;
+    -V|--version) echo "broll $BROLL_VERSION" ;;
+    *) die "unknown command: $sub (try: broll --help)" ;;
+  esac
+}
+
+main "$@"
