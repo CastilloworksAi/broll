@@ -22,7 +22,7 @@ set -uo pipefail
 BROLL_VERSION="1.0.0"
 WPM=320; LOOP=0; SECS=15; PRINT=0
 
-c_reset=$'\033[0m'; c_grn=$'\033[32m'; c_dim=$'\033[2m'; c_red=$'\033[31m'
+c_reset=$'\033[0m'; c_grn=$'\033[32m'; c_red=$'\033[31m'
 ok()  { printf '%s✓%s %s\n' "$c_grn" "$c_reset" "$*"; }
 die() { printf '%s✗%s %s\n' "$c_red" "$c_reset" "$*" >&2; exit 1; }
 have(){ command -v "$1" >/dev/null 2>&1; }
@@ -88,6 +88,7 @@ cmd_rain() {
   elif [[ -x /usr/games/pipes ]]; then bin="/usr/games/pipes -R"
   else die "install cmatrix or pipes-sh for the rain effect (see README)"; fi
   ok "running ${bin%% *} for ${SECS}s — Ctrl-C to stop early"
+  # shellcheck disable=SC2086  # $bin is a command + flags and must word-split
   timeout "${SECS}s" $bin || true
   clear 2>/dev/null || true
 }
